@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>トレーニング記録</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: sans-serif;
+    background: #eaf6f8;
+    margin: 0;
+    color: #333;
+}
+
+.container {
+    max-width: 760px;
+    margin: auto;
+    padding: 12px;
+}
+
+.card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 16px;
+    margin-top: 16px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+}
+
+h1, h2, h3 {
+    text-align: center;
+    margin: 8px 0 16px;
+}
+
+input, select, button {
+    width: 100%;
+    padding: 12px;
+    margin-top: 10px;
+    border-radius: 10px;
+    border: 1px solid #cfd8dc;
+    font-size: 16px;
+}
+
+button {
+    background: #4CAF50;
+    color: white;
+    border: none;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+button:hover {
+    opacity: 0.95;
+}
+
+.cancel-btn {
+    background: #777;
+}
+
+.chart-wrap {
+    position: relative;
+    height: 280px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    font-size: 13px;
+}
+
+th, td {
+    border: 1px solid #d9e2e6;
+    padding: 8px;
+    text-align: center;
+}
+
+th {
+    background: #f3f8fa;
+}
+
+.action-btn {
+    width: auto;
+    padding: 6px 10px;
+    margin: 2px;
+    font-size: 12px;
+}
+
+.edit-btn {
+    background: #2196F3;
+}
+
+.delete-btn {
+    background: #e53935;
+}
+
+.note {
+    text-align: center;
+    color: #666;
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+@media (max-width: 640px) {
+    table {
+        font-size: 11px;
+    }
+
+    th, td {
+        padding: 6px;
+    }
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h1>トレーニング記録</h1>
+
+<div class="card">
+<h2 id="formTitle">記録入力</h2>
+
+<input type="hidden" id="editId">
+
+<select id="type">
+    <option value="run">ランニング</option>
+    <option value="swim">スイム</option>
+</select>
+
+<input type="date" id="date">
+
+<input type="number" step="0.01" id="distance" placeholder="距離（ラン=km / スイム=m）">
+
+<input type="number" step="0.01" id="time" placeholder="タイム（分）">
+
+<button onclick="saveRecord()">保存</button>
+
+<button id="cancelBtn" class="cancel-btn" onclick="cancelEdit()" style="display:none;">
+    編集キャンセル
+</button>
+
+<div class="note">
+    ランもスイムもグラフはタイム表示ですわ。速い記録ほど上に表示されます。
+</div>
+</div>
+
+<div class="card">
+<h3>ランニング（タイム）</h3>
+<div class="chart-wrap">
+<canvas id="runChart"></canvas>
+</div>
+</div>
+
+<div class="card">
+<h3>スイム（タイム）</h3>
+<div class="chart-wrap">
+<canvas id="swimChart"></canvas>
+</div>
+</div>
+
+<div class="card">
+<h3>記録一覧</h3>
+<table>
+<thead>
+<tr>
+<th>日付</th>
+<th>種別</th>
+<th>距離</th>
+<th>時間</th>
+<th>操作</th>
+</tr>
+</thead>
+<tbody id="recordTable"></tbody>
+</table>
+</div>
+
+</div>
+
+<script>
+let records = JSON.parse(localStorage.getItem("trainingRecords")) || [];
+
+let runChart = null;
+let swimChart = null;
+
+function saveToStorage() {
+    localStorage.setItem("trainingRecords", JSON.stringify(records));
+}
+
+function saveRecord() {
+    const editId = document.getElementById("editId").value;
+    const type = document.getElementById("type").value;
+    const date = document.getElementById("date").value;
+    const distance = Number(document.getElementById("distance").value);
+    const time = Number(document.getElementById("time").value);
+
+    if (!date || !distance || !time) {
+        alert("日付・距離・タイムを入力してください");
+        return;
+    }
+
+    if (editId) {
+        const index = records.findIndex(r => r.id === Number(editId));
+        if (index !== -1) {
+            records[index] = {
+                id: Number(editId),
+                type: type,
+                date: date,
+                distance: distance,
+                time: time
+            };
+        }
+    } else {
+        records.push({
+            id: Date.now(),
+            type: type,
+            date: date,
+            distance: distance,
+            time: time
+        });
+    }
+
+    records.sort((a, b) => {
+        if (a.date === b.date) {
+            return a.id - b.id;
+        }
+        return a.date.localeCompare(b.date);
+    });
+
+    saveToStorage();
+    clearForm();
+    renderAll();
+}
+
+function editRecord(id) {
+    const record = records.find(r => r.id === id);
+    if (!record) return;
+
+    document.getElementById("editId").value = record.id;
+    document.getElementById("type").value = record.type;
+    document.getElementById("date").value = record.date;
+    document.getElementById("distance").value = record.distance;
+    document.getElementById("time").value = record.time;
+
+    document.getElementById("formTitle").textContent = "記録編集";
+    document.getElementById("cancelBtn").style.display = "block";
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function deleteRecord(id) {
+    if (!confirm("この記録を削除しますか？")) return;
+
+    records = records.filter(r => r.id !== id);
+    saveToStorage();
+    renderAll();
+}
+
+function cancelEdit() {
+    clearForm();
+}
+
+function clearForm() {
+    document.getElementById("editId").value = "";
+    document.getElementById("type").value = "run";
+    document.getElementById("date").value = "";
+    document.getElementById("distance").value = "";
+    document.getElementById("time").value = "";
+
+    document.getElementById("formTitle").textContent = "記録入力";
+    document.getElementById("cancelBtn").style.display = "none";
+}
+
+function typeLabel(type) {
+    return type === "run" ? "ラン" : "スイム";
+}
+
+function renderTable() {
+    const tbody = document.getElementById("recordTable");
+    tbody.innerHTML = "";
+
+    records.forEach(record => {
+        const tr = document.createElement("tr");
+
+        tr.innerHTML = `
+            <td>${record.date}</td>
+            <td>${typeLabel(record.type)}</td>
+            <td>${record.distance}</td>
+            <td>${record.time}</td>
+            <td>
+                <button class="action-btn edit-btn" onclick="editRecord(${record.id})">編集</button>
+                <button class="action-btn delete-btn" onclick="deleteRecord(${record.id})">削除</button>
+            </td>
+        `;
+
+        tbody.appendChild(tr);
+    });
+}
+
+function renderCharts() {
+    const runLabels = [];
+    const runTimes = [];
+    const swimLabels = [];
+    const swimTimes = [];
+
+    let runCount = 0;
+    let swimCount = 0;
+
+    records.forEach(record => {
+        if (record.type === "run") {
+            runCount++;
+            runLabels.push(`${record.date} (${runCount})`);
+            runTimes.push(Number(record.time));
+        }
+
+        if (record.type === "swim") {
+            swimCount++;
+            swimLabels.push(`${record.date} (${swimCount})`);
+            swimTimes.push(Number(record.time));
+        }
+    });
+
+    if (runChart) runChart.destroy();
+    if (swimChart) swimChart.destroy();
+
+    runChart = new Chart(document.getElementById("runChart"), {
+        type: "line",
+        data: {
+            labels: runLabels,
+            datasets: [{
+                label: "ラン タイム（分）",
+                data: runTimes,
+                borderWidth: 3,
+                tension: 0.25,
+                pointRadius: 5,
+                pointHoverRadius: 7,
+                fill: false
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    reverse: true,
+                    min: 10,
+                    max: 100,
+                    ticks: {
+                        stepSize: 10
+                    }
+                }
+            }
+        }
+    });
+
+    swimChart = new Chart(document.getElementById("swimChart"), {
+        type: "line",
+        data: {
+            labels: swimLabels,
+            datasets: [{
+                label: "スイム タイム（分）",
+                data: swimTimes,
+                borderWidth: 3,
+                tension: 0.25,
+                pointRadius: 5,
+                pointHoverRadius: 7,
+                fill: false
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    reverse: true,
+                    min: 10,
+                    max: 100,
+                    ticks: {
+                        stepSize: 10
+                    }
+                }
+            }
+        }
+    });
+}
+
+function renderAll() {
+    renderTable();
+    renderCharts();
+}
+
+renderAll();
+</script>
+
+</body>
+</html>
